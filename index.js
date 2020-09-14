@@ -236,7 +236,6 @@ class JFMServer {
     registFormat(objectName, object) {
         var registraionArray = [];
         var objectArray = this.getObjectArray(objectName, object);
-        console.log(objectArray);
         
         for (var o of objectArray) {
             var format = this.makeFormatObject(o['o'])
