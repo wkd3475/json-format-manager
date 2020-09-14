@@ -28,9 +28,14 @@ class JFMClient {
                 })
             }
         });
+        
+        var objectNameToHashID = this.objectNameToHashID;
 
         req.on('error', function (err) {
             console.log('request error...');
+            if (objectNameToHashID[objectName] !== 'undefined') {
+                delete objectNameToHashID[objectName];
+            }
         });
     }
 
@@ -127,6 +132,8 @@ module.exports.JFMClient = new JFMClient();
 class JFMServer {
     constructor() {
         this.hashIDToFormatStr = {};
+        this.flag = true;
+        this.id = 0;
     }
 
     isRegisted(hashID) {
@@ -216,7 +223,7 @@ class JFMServer {
                 } else if (data[number] == 'null') {
                     value = null;
                 } else {
-                    console.log('<JFServer:mergeDataWithFormat> something wrong...' + data);
+                    console.log('<JFServer:mergeDataWithFormat> something wrong : '+hashID+'\n' + data);
                 }
             } else {
                 if (typeof(data[number]) === 'string') {
@@ -241,8 +248,13 @@ class JFMServer {
             var format = this.makeFormatObject(o['o'])
             var data = {
                 "n": o['n'],
-                "h": this.hashFnv32a(format)
+                "h": this.getID()
             }
+
+            // var data = {
+            //     "n": o['n'],
+            //     "h": this.hashFnv32a(format+objectName)
+            // }
             
             if (typeof(this.hashIDToFormatStr[data['h']]) === "undefined") {
                 this.hashIDToFormatStr[data['h']] = format;
@@ -265,9 +277,14 @@ class JFMServer {
                     objectArray.push(o);
                 }
             } else if (typeof(object[key]) === "object" && object[key] !== null && Array.isArray(object[key])) {
-                for (var o of this.getObjectArray(objectName+'/'+key, object[key][0])) {
-                    objectArray.push(o);
+                for (var oo of object[key]) {
+                    for (var o of this.getObjectArray(objectName+'/'+key, oo)) {
+                        objectArray.push(o);
+                    }
                 }
+                // for (var o of this.getObjectArray(objectName+'/'+key, object[key][0])) {
+                //     objectArray.push(o);
+                // }
             }
         }
         return objectArray;
@@ -289,6 +306,16 @@ class JFMServer {
             return ':{' + i++ +'}';
         });
         return format;
+    }
+
+    getID() {
+        while (this.flag == false) {
+        }
+        this.flag = false;
+        var index = this.id;
+        this.id = this.id + 1;
+        this.flag = true;
+        return index;
     }
 
     hashFnv32a(str, asString, seed) {
