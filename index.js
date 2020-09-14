@@ -1,9 +1,5 @@
 const Client = require('node-rest-client').Client;
 
-//TODO
-//1. hash를 통해 object format을 가져올 수 있어야 함
-//2. hash는 객체 이름을 가짐
-
 class JFMClient {
     constructor() {
         this.objectNameToHashID = {};
@@ -11,11 +7,11 @@ class JFMClient {
         this.seperator = ';';
     }
 
-    send(url, objectName, object) {
+    sendHttp(url, objectName, objectArray) {
         var client = this.client;
         var receiveMessage = (objectName, data) => {return this.receiveMessage(objectName, data)}
 
-        var message = this.newMessage(objectName, object);
+        var message = this.newMessage(objectName, objectArray);
         var args = {
             data: JSON.stringify(message),
             headers: { "Content-Type": "application/json"}
@@ -25,7 +21,7 @@ class JFMClient {
             var isRegisted = receiveMessage(data);
             if (isRegisted == false) {
                 console.log("<JFClient:send> Not exist hashID. Try to regist format");
-                args['data'] = JSON.stringify(object);
+                args['data'] = JSON.stringify(objectArray);
 
                 client.post(url, args, function (data, response) {
                     receiveMessage(data);
@@ -61,62 +57,65 @@ class JFMClient {
         return false;
     }
 
-    newMessage(objectName, object) {
+    // (objectName, [object, ..., object]) => {'h': hashID, 'd': [data, ..., data]}
+    // (objectName, [object, ..., object]) => {'n': objectName, 'o': [object, ..., object]}
+    // (objectName, object) => {'h': hashID, 'd': data}
+    newMessage(objectName, objectArray) {
         if (this.isRegisted(objectName)) {
-            var message = [];
-            if (Array.isArray(object)) {
-                for (var o of object) {
-                    message.push(this.objectToData(objectName, o));
-                }
+            var message = {
+                'h': this.objectNameToHashID[objectName],
+                'd': []
+            };
+
+            if (!Array.isArray(objectArray)) {
+                message['d'] = this.objectToData(object);
             } else {
-                message.push(this.objectToData(objectName, object));
+                for (var object of objectArray) {
+                    message['d'].push(this.objectToData(object));
+                }
             }
+
             return message;
         } else {
-            var message = [];
-            if (Array.isArray(object)) {
-                for (var o of object) {
-                    message.push({'n':objectName, 'o':o});
-                }
-            } else {
-                message.push({'n':objectName, 'o':object});
-            }
+            var message = {
+                'n': objectName,
+                'o': objectArray
+            };
 
             return message;
         }
     }
 
-    objectToData(objectName, object) {
-        var data = {
-            'h': this.objectNameToHashID[objectName],
-            'd': []
-        };
+    //{'a':1, 'b':{'a':1, 'b':2}, 'c':[3,4,5,6], 'd':[{}, {}, {}], 'e': null}
+    // 1. object
+    // - normal object
+    // - array
+    // - else (ex. null)
+
+    // 2. no object
+    // - string
+    // - number
+    // - boolean
+    // - symbol
+
+    objectToData(object) {
+        var data = [];
 
         for (var key in object) {
-            if (Array.isArray(object[key])) {
-                data['d'].push(this.arrayToData(key, object[key]));
-            } else if (typeof(object[key])==='object' && object[key]!==null) {
-                for (var inData of this.objectToData(key, object[key])['d']) {
-                    data['d'].push(inData);
+            var valueType = typeof(object[key]);
+
+            if (valueType === 'object') {
+                if (Array.isArray(object[key])) {
+                    if (typeof(object[key][0]) !== 'object') {
+                        data.push(object[key]);
+                    } else if (typeof(object[key][0]) === 'object') {
+                        data.push(this.newMessage(key, object[key]));
+                    }
+                } else if (!Array.isArray(object[key]) && typeof(object[key] === 'object')) {
+                    data.push(this.newMessage(key, [object[key]]));
                 }
             } else {
-                    data['d'].push(object[key]);
-            }
-        }
-        return data;
-    }
-
-    
-    arrayToData(objectName, array) {
-        var data = [];
-        for (var element of array) {
-            if (typeof(element)==='object' && element!==null && Array.isArray(element)) {
-                data.push(this.arrayToData(element));
-            } else if (typeof(element)==='object' && element!==null && !Array.isArray(element)) {
-                data.push(this.objectToData(objectName, element));
-            } else {
-                data.push(element);
-                // data.push("\""+element+"\"");
+                data.push(object[key]);
             }
         }
         return data;
@@ -137,84 +136,97 @@ class JFMServer {
         return false;
     }
 
-    //[{"n": 객체이름, "o": 객체(키+값)},{"n": 객체이름, "o": 객체(키+값)}]
-    //[{"h": 해시값, "d": [데이터]},{"h": 해시값, "d": [데이터]}]
+    //{"n": 객체이름, "o": [객체(키+값), 객체(키+값)]}
+    //{"h": 해시값, "d": [데이터,데이터]}
     //위 두 케이스만 존재한다고 가정
     parse(data) {
         var result = [];
         var message = {
             'ok': true,
         };
-
-        if (typeof(data[0]['h']) === 'undefined') { // 1. 등록되지 않은 포맷에 대한 요청
+        if (typeof(data['h']) === 'undefined') { // 1. 등록되지 않은 포맷에 대한 요청
             console.log('<JFServer:parse> get registry message');
             message['registry'] = [];
-            for (var r of this.registFormat(data[0]['n'], data[0]['o'])) {
+            for (var r of this.registFormat(data['n'], data['o'][0])) {
                 message['registry'].push(r);
             }
 
-            for (var d of data) {
-                result.push(d['o']);
+            for (var o of data['o']) {
+                result.push(o);
             }
-        } else { // 2. 등록된 포맷에 대한 요청
-            for (var d of data) {
-                result.push(JSON.parse(this.parseHashData(d, message)));
+        } else { // 2. 해시 포맷으로 요청
+            if (this.isRegisted(data['h'])) {
+                if (data['d'].length > 1) {
+                    for (var d of data['d']) {
+                        result.push(this.mergeDataWithFormat(data['h'], d, message));
+                    }
+                } else {
+                    result.push(this.mergeDataWithFormat(data['h'], data['d'][0], message));
+                }
+            } else {
+                message['ok'] = false;
+                if (typeof(message['err']) === 'undefined') {
+                    message['err'] = 'not exist hashID : '+data['h']+'\n';
+                } else {
+                    message['err'] = message['err']+'not exist hashID : '+data['h']+'\n';
+                }
             }
+            
         }
+        
         return [result, message];
     }
 
-    //해시값으로 요청
-    //{"h": 해시값, "d": [데이터]}
-    parseHashData(data, message) {
-        var result = null;
-        if (this.isRegisted(data['h'])) { //1. hash 값으로 데이터를 담아서 보냈고 등록되어 있음
-            result = this.mergeDataWithFormat(data);
-        } else { //2. hash 값으로 데이터를 담아서 보냈지만 등록되지 않았음
-            message['ok'] = false;
-            if (typeof(message['err']) === 'undefined') {
-                message['err'] = 'not exist hashID : '+data['h']+'\n';
-            } else {
-                message['err'] = message['err']+'not exist hashID : '+data['h']+'\n';
-            }
-        }
-        return result;
-    }
-    
-
-    //{"h": 해시값, "d": [데이터]} => json
-    mergeDataWithFormat(data) {
-        var formatString = this.hashIDToFormatStr[data['h']];
-        var datas = data['d'];
+    //(hashID, [1,2,3,4,5])
+    //(hashID, [1,2,3,{'h':123, 'd': [data]}])
+    //(hashID, [1,2,3,{'h':123, 'd': [data, ..., data]},5,6])
+    //(hashID, [1,2,3,[1,2,3,4],5,6])
+    //(hashID, [1,2,3,{'h':123, 'd': [data, ..., data]},5,6])
+    //(hashID, [1,2,3,null,5,6])
+    mergeDataWithFormat(hashID, data, message) {
+        var formatString = this.hashIDToFormatStr[hashID];
         return formatString.replace(/{(\d+)}/g, (match, number) => {
             var value = null;
-            if (Array.isArray(datas[number]) && typeof(datas[number][0]) === 'object') {
-                value = '[';
-                for (var o of datas[number]) {
-                    value = value + this.mergeDataWithFormat(o) + ',';
-                }
-                value = value.slice(0,-1)+']';
-            } else if (Array.isArray(datas[number]) && typeof(datas[number][0]) === 'string') {
-                value = '[';
-                for (var o of datas[number]) {
-                    value = value + '\"'+o+'\",';
-                }
-                value = value.slice(0,-1)+']';
-            } else if (Array.isArray(datas[number]) && typeof(datas[number][0]) === 'number') {
-                value = '[';
-                for (var o of datas[number]) {
-                    value = value +o+',';
-                }
-                value = value.slice(0,-1)+']';
-            } else {
-                if (typeof(datas[number]) === 'string') {
-                    value = '\"'+datas[number]+'\"';
+            if (typeof(data[number]) === 'object') {
+                if (typeof(data[number]['h']) !== 'undefined') {
+                    var temp = this.parse(data[number]);
+                    if (temp[1]['ok'] == false) {
+                        message['ok'] = false;
+                        message['err'] = message['err'] + temp[1]['err'];
+                    }
+                    if (temp[0].length > 1) {
+                        value = '[';
+                        for (var s of temp[0]) {
+                            value = value + s +',';
+                        }
+                        value = value.slice(0,-1)+']';
+                    } else {
+                        value = temp[0];
+                    }
+                } else if (Array.isArray(data[number])) {
+                    value = '[';
+                    for (var o of data[number]) {
+                        if (typeof(o) === 'string') {
+                            value = value + '\"'+o+'\",';
+                        } else {
+                            value = value + o +',';
+                        }
+                    }
+                    value = value.slice(0,-1)+']';
+                } else if (data[number] == 'null') {
+                    value = null;
                 } else {
-                    value = datas[number];
+                    console.log('<JFServer:mergeDataWithFormat> something wrong...' + data);
+                }
+            } else {
+                if (typeof(data[number]) === 'string') {
+                    value = '\"'+data[number]+'\"';
+                } else {
+                    value = data[number];
                 }
             }
 
-            return typeof datas[number] != 'undefined'
+            return typeof data[number] != 'undefined'
                 ? value
                 : match
             ;
@@ -235,8 +247,8 @@ class JFMServer {
             if (typeof(this.hashIDToFormatStr[data['h']]) === "undefined") {
                 this.hashIDToFormatStr[data['h']] = format;
                 console.log('<JFServer:parseToObject> regist hashID : '+data['h']);
-                registraionArray.push(data);
             }
+            registraionArray.push(data);
         }
         return registraionArray;
     }
@@ -310,11 +322,7 @@ class JFMServer {
 
     makeNullObject(object) {
         for (var key in object) {
-            if (typeof(object[key]) === 'object' && object[key] !== null && !Array.isArray(object[key])) {
-                var temp = this.makeNullObject(object[key]);
-            } else {
-                object[key] = null;
-            }
+            object[key] = null;
         }
         return object;
     }
