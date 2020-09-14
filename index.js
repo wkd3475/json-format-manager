@@ -68,10 +68,10 @@ class JFMClient {
             };
 
             if (!Array.isArray(objectArray)) {
-                message['d'] = this.objectToData(object);
+                message['d'] = this.objectToData(objectName, object);
             } else {
                 for (var object of objectArray) {
-                    message['d'].push(this.objectToData(object));
+                    message['d'].push(this.objectToData(objectName, object));
                 }
             }
 
@@ -98,7 +98,7 @@ class JFMClient {
     // - boolean
     // - symbol
 
-    objectToData(object) {
+    objectToData(objectName, object) {
         var data = [];
 
         for (var key in object) {
@@ -109,10 +109,10 @@ class JFMClient {
                     if (typeof(object[key][0]) !== 'object') {
                         data.push(object[key]);
                     } else if (typeof(object[key][0]) === 'object') {
-                        data.push(this.newMessage(key, object[key]));
+                        data.push(this.newMessage(objectName+'/'+key, object[key]));
                     }
                 } else if (!Array.isArray(object[key]) && typeof(object[key] === 'object')) {
-                    data.push(this.newMessage(key, [object[key]]));
+                    data.push(this.newMessage(objectName+'/'+key, [object[key]]));
                 }
             } else {
                 data.push(object[key]);
@@ -235,7 +235,8 @@ class JFMServer {
 
     registFormat(objectName, object) {
         var registraionArray = [];
-        var objectArray = objectArray = this.getObjectArray(objectName, object);
+        var objectArray = this.getObjectArray(objectName, object);
+        console.log(objectArray);
         
         for (var o of objectArray) {
             var format = this.makeFormatObject(o['o'])
@@ -261,11 +262,11 @@ class JFMServer {
 
         for (var key in object) {
             if (typeof(object[key]) === "object" && object[key] !== null && !Array.isArray(object[key])) {
-                for (var o of this.getObjectArray(key, object[key])) {
+                for (var o of this.getObjectArray(objectName+'/'+key, object[key])) {
                     objectArray.push(o);
                 }
             } else if (typeof(object[key]) === "object" && object[key] !== null && Array.isArray(object[key])) {
-                for (var o of this.getObjectArray(key, object[key][0])) {
+                for (var o of this.getObjectArray(objectName+'/'+key, object[key][0])) {
                     objectArray.push(o);
                 }
             }
