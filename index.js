@@ -132,8 +132,7 @@ module.exports.JFMClient = new JFMClient();
 class JFMServer {
     constructor() {
         this.hashIDToFormatStr = {};
-        this.flag = true;
-        this.id = 0;
+        this.objectNameToHashID = {};
     }
 
     isRegisted(hashID) {
@@ -245,19 +244,18 @@ class JFMServer {
         var objectArray = this.getObjectArray(objectName, object);
         
         for (var o of objectArray) {
+            if (typeof(this.objectNameToHashID[o['n']]) !== 'undefined') {
+                continue;
+            }
             var format = this.makeFormatObject(o['o'])
             var data = {
                 "n": o['n'],
-                "h": this.getID()
+                "h": this.hashFnv32a(format+objectName)
             }
-
-            // var data = {
-            //     "n": o['n'],
-            //     "h": this.hashFnv32a(format+objectName)
-            // }
             
             if (typeof(this.hashIDToFormatStr[data['h']]) === "undefined") {
                 this.hashIDToFormatStr[data['h']] = format;
+                this.objectNameToHashID[o['n']] = data['h'];
                 console.log('<JFServer:parseToObject> regist hashID : '+data['h']);
             }
             registraionArray.push(data);
@@ -277,14 +275,11 @@ class JFMServer {
                     objectArray.push(o);
                 }
             } else if (typeof(object[key]) === "object" && object[key] !== null && Array.isArray(object[key])) {
-                for (var oo of object[key]) {
-                    for (var o of this.getObjectArray(objectName+'/'+key, oo)) {
+                for (var innerObject of object[key]) {
+                    for (var o of this.getObjectArray(objectName+'/'+key, innerObject)) {
                         objectArray.push(o);
                     }
                 }
-                // for (var o of this.getObjectArray(objectName+'/'+key, object[key][0])) {
-                //     objectArray.push(o);
-                // }
             }
         }
         return objectArray;
@@ -308,16 +303,6 @@ class JFMServer {
         return format;
     }
 
-    getID() {
-        while (this.flag == false) {
-        }
-        this.flag = false;
-        var index = this.id;
-        this.id = this.id + 1;
-        this.flag = true;
-        return index;
-    }
-
     hashFnv32a(str, asString, seed) {
         var i, l,
             hval = (seed === undefined) ? 0x811c9dc5 : seed;
@@ -329,7 +314,14 @@ class JFMServer {
         if( asString ){
             return ('0000000' + (hval >>> 0).toString(16)).substr(-8);
         }
-        return hval >>> 0;
+        var result = (((hval >>> 0) / 1000000) | 0);
+        while (true) {
+            if (typeof(this.hashIDToFormatStr[result]) === 'undefined') {
+                break;
+            }
+            result = result + 1;
+        }
+        return result;
     }
 
     cloneObject(object) {
