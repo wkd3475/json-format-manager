@@ -13,7 +13,7 @@ class JFMClient {
 
         var message = this.newMessage(objectName, objectArray);
         var args = {
-            data: JSON.stringify(message),
+            data: message,
             headers: { "Content-Type": "application/json"}
         }
         
@@ -21,7 +21,7 @@ class JFMClient {
             var isRegisted = receiveMessage(data);
             if (isRegisted == false) {
                 console.log("<JFClient:send> Not exist hashID. Try to regist format");
-                args['data'] = JSON.stringify(objectArray);
+                args['data'] = objectArray;
 
                 client.post(url, args, function (data, response) {
                     receiveMessage(data);
