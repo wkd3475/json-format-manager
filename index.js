@@ -154,10 +154,11 @@ class JFMClient {
         }
     }
 
-    send = (url, changedJSON) => {
+    send = (url, object) => {
+        let jfmObject = this.newMessage(object);
         let client = this.client;
         let args = {
-            data: changedJSON,
+            data: jfmObject,
             headers: { "Content-Type": "application/json"}
         }
 
