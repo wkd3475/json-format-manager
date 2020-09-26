@@ -1,6 +1,8 @@
 const Client = require('node-rest-client').Client;
 const stringify = require('json-stable-stringify');
 
+//TODO : 결함 허용 기능 추가할 것
+
 const debugMode = true;
 
 class Utils {
