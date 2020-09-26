@@ -3,7 +3,7 @@ const stringify = require('json-stable-stringify');
 
 //TODO : 결함 허용 기능 추가할 것
 
-const debugMode = true;
+const debugMode = false;
 
 class Utils {
     getType = (target) => {
@@ -88,7 +88,7 @@ class JFMClient {
                     }
                     temp = [element["d"]];
                 }
-            } else { //element가 Scala
+            } else {
                 if (before == null) {
                     before = NOT_JFM_OBJECT;
                 } else if (before != NOT_JFM_OBJECT) {
@@ -131,7 +131,7 @@ class JFMClient {
                     message["d"].push(this.transformToJFMObject(target[key]));
                 }
                 return message;
-            } else { //uncached
+            } else {
                 return target;
             }
         }
@@ -142,7 +142,6 @@ class JFMClient {
                 arr.push(this.transformToJFMObject(element));
             }
             return this.compress(arr);
-            // return arr; //this.compress(arr);
         }
     }
 
@@ -166,15 +165,6 @@ class JFMClient {
             for (let formatId in data.registration) {
                 this.registFormat(data.registration[formatId], formatId);
             }
-            // let isRegisted = this.receiveMessage(data);
-            // if (isRegisted == false) {
-            //     console.log("<JFClient:send> Not exist hashId. Try to regist format");
-            //     args['data'] = objectArray;
-
-            //     client.post(url, args, function (data, response) {
-            //         receiveMessage(data);
-            //     })
-            // }
         })
 
         req.on('error', (err) => {
@@ -279,7 +269,6 @@ class JFMServer {
         return result;
     }
 
-    //TODO : 캐시 등록 및 교환 구현
     parse = () => (req, res, next) => {
         let data = "";
         req.on('data', (chunk) => data += chunk);
@@ -313,7 +302,7 @@ class JFMServer {
             return obj;
         }
 
-        if (type == "JFMObject") { //not compressed
+        if (type == "JFMObject") {
             if (this.isCached(target["i"])) {
                 let format = this.getFormatById(target["i"]);
                 let obj = {};
@@ -334,10 +323,6 @@ class JFMServer {
 
         if (type == "Array") {
             let arr = [];
-
-            // for (let element of target) {
-            //     arr.push(this.transformToObject(element, jfm));
-            // }
             let decompressedArr = this.decompress(target)
             
             for (let element of decompressedArr) {
