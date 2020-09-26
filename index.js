@@ -187,6 +187,7 @@ module.exports.JFMClient = new JFMClient();
 class JFMServer {
     constructor() {
         this.cache = {};
+        // this.formatArray = [];
     }
 
     isCached = (formatId) => {
@@ -227,7 +228,23 @@ class JFMServer {
         return formatArray;
     }
 
+    // registFormat id값을 순차적으로 부여, p2p에서 유리함
+    // registFormat = (format) => {
+    //     let str = stringify(format);
+    //     let index = this.formatArray.indexOf(str);
+    //     if (index === -1) {
+    //         this.formatArray.push(str);
+    //         let id = this.formatArray.indexOf(str);
+    //         this.cache[id] = format;
+    //         if (debugMode) {
+    //             console.log("registFormat : new cache");
+    //             console.log(format);
+    //         }
+    //         return id.toString();
+    //     }
         
+    //     return index.toString();
+    // }
 
     registFormat = (format) => {
         let str = stringify(format);
