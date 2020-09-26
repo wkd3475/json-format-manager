@@ -1,129 +1,184 @@
 const Client = require('node-rest-client').Client;
+const stringify = require('json-stable-stringify');
+
+const debugMode = true;
+
+class Utils {
+    getType = (target) => {
+        if (this.isJFMObject(target)) {
+            return "JFMObject";
+        } else if (typeof(target) === "object" && target !== null && !Array.isArray(target) ) {
+            return "PureObject";
+        } else if (typeof(target) === "object" && target !== null && Array.isArray(target)) {
+            return "Array";
+        }
+        return "Scala";
+    }
+
+    getFormat = (object) => {
+        let arr = [];
+        for (let key in object) {
+            arr.push(key);
+        }
+        return arr.sort();
+    }
+
+    isJFMObject = (object) => {
+        if (object != null && typeof(object) === "object" && !Array.isArray(object)) {
+            if (Object.keys(object).length == 2) {
+                if (typeof(object["i"]) !== "undefined" && typeof(object["d"]) !== "undefined")
+                    return true;
+
+                if (typeof(object["i"]) !== "undefined" && typeof(object["c"]) !== "undefined")
+                    return true
+            }
+        }
+        return false;
+    }
+}
+const utils = new Utils();
 
 class JFMClient {
     constructor() {
-        this.objectNameToHashID = {};
+        this.cache = {};
         this.client = new Client();
-        this.seperator = ';';
     }
 
-    sendHttp(url, objectName, objectArray) {
-        var client = this.client;
-        var receiveMessage = (objectName, data) => {return this.receiveMessage(objectName, data)}
-
-        var message = this.newMessage(objectName, objectArray);
-        var args = {
-            data: message,
-            headers: { "Content-Type": "application/json"}
-        }
-        
-        var req = client.post(url, args, function (data, response) {
-            var isRegisted = receiveMessage(data);
-            if (isRegisted == false) {
-                console.log("<JFClient:send> Not exist hashID. Try to regist format");
-                args['data'] = objectArray;
-
-                client.post(url, args, function (data, response) {
-                    receiveMessage(data);
-                })
-            }
-        });
-        
-        var objectNameToHashID = this.objectNameToHashID;
-
-        req.on('error', function (err) {
-            console.log('request error...');
-            if (objectNameToHashID[objectName] !== 'undefined') {
-                delete objectNameToHashID[objectName];
-            }
-        });
-    }
-
-    receiveMessage(data) {
-        if (typeof(data['registry']) !== 'undefined') {
-            for (var r of data['registry']) {
-                this.objectNameToHashID[r['n']] = r['h'];
-                console.log('<JFClient:receiveMessage> new registry : ');
-                console.log(r);
-            }
-        } 
-
-        if (typeof(data['err']) !== 'undefined') {
-            console.log(data['err']);
-        }
-        
-        return data['ok'];
-    }
-
-    isRegisted(objectName) {
-        if (typeof(this.objectNameToHashID[objectName]) !== 'undefined') {
+    isCached = (format) => {
+        if (typeof(format) === "string" && typeof(this.cache[format]) !== "undefined") {
             return true;
+        } else if (typeof(format) === "object") {
+            let formatStr = stringify(format);
+            if (typeof(this.cache[formatStr]) !== "undefined") {
+                return true;
+            }
         }
         return false;
     }
 
-    // (objectName, [object, ..., object]) => {'h': hashID, 'd': [data, ..., data]}
-    // (objectName, [object, ..., object]) => {'n': objectName, 'o': [object, ..., object]}
-    // (objectName, object) => {'h': hashID, 'd': data}
-    newMessage(objectName, objectArray) {
-        if (this.isRegisted(objectName)) {
-            var message = {
-                'h': this.objectNameToHashID[objectName],
-                'd': []
-            };
+    newMessage = (object) => {
+        return stringify(this.transformToJFMObject(object));
+    }
 
-            if (!Array.isArray(objectArray)) {
-                message['d'] = this.objectToData(objectName, object);
-            } else {
-                for (var object of objectArray) {
-                    message['d'].push(this.objectToData(objectName, object));
+    compress = (arr) => {
+        let result = [];
+
+        let before = null;
+        let temp = [];
+        const NOT_JFM_OBJECT = 1;
+
+        for (let element of arr) {
+            if (utils.isJFMObject(element)) {
+                if (element["i"] == before) {
+                    temp.push(element["d"]);
+                } else {
+                    if (before == null) {
+                        before = element["i"];
+                    } else if (before !== NOT_JFM_OBJECT) {
+                        if (temp.length > 1) {
+                            result.push({"i": before, "c": temp});
+                            temp = [];
+                        } else {
+                            result.push({"i": before, "d": temp[0]});
+                            temp = [];
+                        }
+                        before = element["i"];
+                    }
+                    temp = [element["d"]];
                 }
+            } else { //element가 Scala
+                if (before == null) {
+                    before = NOT_JFM_OBJECT;
+                } else if (before != NOT_JFM_OBJECT) {
+                    if (temp.length > 1) {
+                        result.push({"i": before, "c": temp});
+                        temp = [];
+                    } else {
+                        result.push({"i": before, "d": temp[0]});
+                        temp = [];
+                    }
+                }
+                result.push(element);
             }
+        }
+        if (temp.length > 1) {
+            result.push({"i": before, "c": temp});
+        } else if (temp.length == 1) {
+            result.push({"i": before, "d": temp[0]});
+        } 
 
-            return message;
-        } else {
-            var message = {
-                'n': objectName,
-                'o': objectArray
-            };
+        return result;
+    }
 
-            return message;
+    transformToJFMObject = (target) => {
+        let type = utils.getType(target);
+        if (type == "Scala") {
+            return target;
+        }
+
+        if (type == "PureObject") {
+            let format = utils.getFormat(target);
+            let formatStr = stringify(format);
+            if (this.isCached(formatStr)) {
+                let message = {
+                    "i": this.cache[formatStr],
+                    "d": []
+                }
+
+                for (let key of format) {
+                    message["d"].push(this.transformToJFMObject(target[key]));
+                }
+                return message;
+            } else { //uncached
+                return target;
+            }
+        }
+
+        if (type == "Array") {
+            let arr = [];
+            for (let element of target) {
+                arr.push(this.transformToJFMObject(element));
+            }
+            return this.compress(arr);
+            // return arr; //this.compress(arr);
         }
     }
 
-    //{'a':1, 'b':{'a':1, 'b':2}, 'c':[3,4,5,6], 'd':[{}, {}, {}], 'e': null}
-    // 1. object
-    // - normal object
-    // - array
-    // - else (ex. null)
-
-    // 2. no object
-    // - string
-    // - number
-    // - boolean
-    // - symbol
-
-    objectToData(objectName, object) {
-        var data = [];
-
-        for (var key in object) {
-            var valueType = typeof(object[key]);
-
-            if (valueType === 'object') {
-                if (Array.isArray(object[key])) {
-                    if (typeof(object[key][0]) !== 'object') {
-                        data.push(object[key]);
-                    } else if (typeof(object[key][0]) === 'object') {
-                        data.push(this.newMessage(objectName+'/'+key, object[key]));
-                    }
-                } else if (!Array.isArray(object[key]) && typeof(object[key] === 'object')) {
-                    data.push(this.newMessage(objectName+'/'+key, [object[key]]));
-                }
-            } else {
-                data.push(object[key]);
-            }
+    registFormat(format, formatId) {
+        let str = stringify(format);
+        this.cache[str] = formatId;
+        if (debugMode) {
+            console.log("registFormat : new cache");
+            console.log(str+": "+formatId);
         }
-        return data;
+    }
+
+    send = (url, changedJSON) => {
+        let client = this.client;
+        let args = {
+            data: changedJSON,
+            headers: { "Content-Type": "application/json"}
+        }
+
+        let req = client.post(url, args, (data, response) => {
+            for (let formatId in data.registration) {
+                this.registFormat(data.registration[formatId], formatId);
+            }
+            // let isRegisted = this.receiveMessage(data);
+            // if (isRegisted == false) {
+            //     console.log("<JFClient:send> Not exist hashId. Try to regist format");
+            //     args['data'] = objectArray;
+
+            //     client.post(url, args, function (data, response) {
+            //         receiveMessage(data);
+            //     })
+            // }
+        })
+
+        req.on('error', (err) => {
+            console.log('request error...');
+            //TODO : error control
+        });
     }
 }
 
@@ -131,176 +186,146 @@ module.exports.JFMClient = new JFMClient();
 
 class JFMServer {
     constructor() {
-        this.hashIDToFormatStr = {};
-        this.objectNameToHashID = {};
+        this.cache = {};
     }
 
-    isRegisted(hashID) {
-        if (typeof(this.hashIDToFormatStr[hashID]) !== 'undefined') {
+    isCached = (formatId) => {
+        if (typeof(this.cache[formatId]) !== "undefined") {
             return true;
         }
         return false;
     }
 
-    //{"n": 객체이름, "o": [객체(키+값), 객체(키+값)]}
-    //{"h": 해시값, "d": [데이터,데이터]}
-    //위 두 케이스만 존재한다고 가정
-    parse(data) {
-        var result = [];
-        var message = {
-            'ok': true,
-        };
-        if (typeof(data['h']) === 'undefined') { // 1. 등록되지 않은 포맷에 대한 요청
-            console.log('<JFServer:parse> get registry message');
-            message['registry'] = [];
-            for (var r of this.registFormat(data['n'], data['o'][0])) {
-                message['registry'].push(r);
-            }
-
-            for (var o of data['o']) {
-                result.push(o);
-            }
-        } else { // 2. 해시 포맷으로 요청
-            if (this.isRegisted(data['h'])) {
-                if (data['d'].length > 1) {
-                    for (var d of data['d']) {
-                        result.push(this.mergeDataWithFormat(data['h'], d, message));
-                    }
-                } else {
-                    result.push(this.mergeDataWithFormat(data['h'], data['d'][0], message));
-                }
-            } else {
-                message['ok'] = false;
-                if (typeof(message['err']) === 'undefined') {
-                    message['err'] = 'not exist hashID : '+data['h']+'\n';
-                } else {
-                    message['err'] = message['err']+'not exist hashID : '+data['h']+'\n';
-                }
-            }
-            
-        }
-        
-        return [result, message];
+    getFormatById = (formatId) => {
+        return this.cache[formatId];
     }
 
-    //(hashID, [1,2,3,4,5])
-    //(hashID, [1,2,3,{'h':123, 'd': [data]}])
-    //(hashID, [1,2,3,{'h':123, 'd': [data, ..., data]},5,6])
-    //(hashID, [1,2,3,[1,2,3,4],5,6])
-    //(hashID, [1,2,3,{'h':123, 'd': [data, ..., data]},5,6])
-    //(hashID, [1,2,3,null,5,6])
-    mergeDataWithFormat(hashID, data, message) {
-        var formatString = this.hashIDToFormatStr[hashID];
-        return formatString.replace(/{(\d+)}/g, (match, number) => {
-            var value = null;
-            if (typeof(data[number]) === 'object') {
-                if (typeof(data[number]['h']) !== 'undefined') {
-                    var temp = this.parse(data[number]);
-                    if (temp[1]['ok'] == false) {
-                        message['ok'] = false;
-                        message['err'] = message['err'] + temp[1]['err'];
+    getUncachedFormatArray = (object) => {
+        if (utils.getType(object) == "Scala") {
+            return [];
+        }
+        let formatArray = [];
+        let format = utils.getFormat(object);
+        formatArray.push(format);
+
+        for (let key in object) {
+            let type = utils.getType(object[key]);
+            if (type == "PureObject") {
+                for (let data of this.getUncachedFormatArray(object[key])) {
+                    formatArray.push(data);
+                }
+            } else if (type == "Array") {
+                for (let element of object[key]) {
+                    for (let data of this.getUncachedFormatArray(element)) {
+                        formatArray.push(data);
                     }
-                    if (temp[0].length > 1) {
-                        value = '[';
-                        for (var s of temp[0]) {
-                            value = value + s +',';
-                        }
-                        value = value.slice(0,-1)+']';
-                    } else {
-                        value = temp[0];
-                    }
-                } else if (Array.isArray(data[number])) {
-                    value = '[';
-                    for (var o of data[number]) {
-                        if (typeof(o) === 'string') {
-                            value = value + '\"'+o+'\",';
-                        } else {
-                            value = value + o +',';
-                        }
-                    }
-                    value = value.slice(0,-1)+']';
-                } else if (data[number] == 'null') {
-                    value = null;
-                } else {
-                    console.log('<JFServer:mergeDataWithFormat> something wrong : '+hashID+'\n' + data);
+                }
+            } else if (tpye == "JFMObject") {
+
+            }
+        }
+        return formatArray;
+    }
+
+        
+
+    registFormat = (format) => {
+        let str = stringify(format);
+        let id = this.hashFnv32a(str);
+        if (!this.isCached(id)) {
+            this.cache[id] = format;
+            if (debugMode) {
+                console.log("registFormat : new cache");
+                console.log(format);
+            }
+            return id.toString();
+        }
+        
+        return id.toString();
+    }
+
+    decompress = (arr) => {
+        let result = [];
+        for (let element of arr) {
+            let formatId = element["i"];
+
+            if (typeof(element["c"]) !== "undefined") {
+                for (let d of element["c"]) {
+                    result.push({"i": formatId, "d": d});
                 }
             } else {
-                if (typeof(data[number]) === 'string') {
-                    value = '\"'+data[number]+'\"';
-                } else {
-                    value = data[number];
-                }
+                result.push(element);
             }
+        }
+        return result;
+    }
 
-            return typeof data[number] != 'undefined'
-                ? value
-                : match
-            ;
+    //TODO : 캐시 등록 및 교환 구현
+    parse = () => (req, res, next) => {
+        let data = "";
+        req.on('data', (chunk) => data += chunk);
+        req.on('end', () => {
+            let jfm = {
+                "ok": true
+            };
+            let object = JSON.parse(data);
+            req.body = this.transformToObject(object, jfm);
+            res.jfm = jfm;
+            next()
         });
     }
 
-    registFormat(objectName, object) {
-        var registraionArray = [];
-        var objectArray = this.getObjectArray(objectName, object);
-        
-        for (var o of objectArray) {
-            if (typeof(this.objectNameToHashID[o['n']]) !== 'undefined') {
-                continue;
+    transformToObject(target, jfm) {
+        let type = utils.getType(target);
+        if (type == "Scala")
+            return target;
+
+        if (type == "PureObject") {
+            let obj = {};
+            if (typeof(jfm["registration"]) === "undefined") {
+                jfm.registration = {};
             }
-            var format = this.makeFormatObject(o['o'])
-            var data = {
-                "n": o['n'],
-                "h": this.hashFnv32a(format+objectName)
+            let format = utils.getFormat(target);
+            jfm.registration[this.registFormat(format)] = format;
+
+            for (let key of format) {
+                obj[key] = this.transformToObject(target[key], jfm);
             }
+            return obj;
+        }
+
+        if (type == "JFMObject") { //not compressed
+            if (this.isCached(target["i"])) {
+                let format = this.getFormatById(target["i"]);
+                let obj = {};
+
+                for (let i=0; i<format.length; i++) {
+                    obj[format[i]] = this.transformToObject(target["d"][i], jfm);
+                }
+                return obj;
+            } else {
+                jfm.ok = false;
+                if (typeof(jfm.remove) === "undefined") {
+                    jfm.remove = [];
+                }
+                jfm.remove.push(target["i"]);
+                return {"err": "JFM : Not exist id "+target["i"]};
+            }
+        }
+
+        if (type == "Array") {
+            let arr = [];
+
+            // for (let element of target) {
+            //     arr.push(this.transformToObject(element, jfm));
+            // }
+            let decompressedArr = this.decompress(target)
             
-            if (typeof(this.hashIDToFormatStr[data['h']]) === "undefined") {
-                this.hashIDToFormatStr[data['h']] = format;
-                this.objectNameToHashID[o['n']] = data['h'];
-                console.log('<JFServer:parseToObject> regist hashID : '+data['h']);
+            for (let element of decompressedArr) {
+                arr.push(this.transformToObject(element, jfm));
             }
-            registraionArray.push(data);
+            return arr;
         }
-        return registraionArray;
-    }
-
-    getObjectArray(objectName, object) {
-        var objectArray = [];
-        if (typeof(object) === "object") {
-            objectArray.push({'n': objectName, 'o':object});
-        }
-
-        for (var key in object) {
-            if (typeof(object[key]) === "object" && object[key] !== null && !Array.isArray(object[key])) {
-                for (var o of this.getObjectArray(objectName+'/'+key, object[key])) {
-                    objectArray.push(o);
-                }
-            } else if (typeof(object[key]) === "object" && object[key] !== null && Array.isArray(object[key])) {
-                for (var innerObject of object[key]) {
-                    for (var o of this.getObjectArray(objectName+'/'+key, innerObject)) {
-                        objectArray.push(o);
-                    }
-                }
-            }
-        }
-        return objectArray;
-    }
-
-    makeFormatObject(object) {
-        //1. 깊은 복사
-        var cloneObject = this.cloneObject(object);
-    
-        //2. 복사된 obj의 모든 값을 null로 만듦
-        var nullObject = this.makeNullObject(cloneObject);
-    
-        //3. nullObject를 string으로 변환
-        var str = JSON.stringify(nullObject);
-    
-        //4. nullString를 format으로 바꿈
-        var i = 0;
-        var format = str.replace(/:null/g, (match) => {
-            return ':{' + i++ +'}';
-        });
-        return format;
     }
 
     hashFnv32a(str, asString, seed) {
@@ -315,35 +340,7 @@ class JFMServer {
             return ('0000000' + (hval >>> 0).toString(16)).substr(-8);
         }
         var result = (((hval >>> 0) / 1000000) | 0);
-        while (true) {
-            if (typeof(this.hashIDToFormatStr[result]) === 'undefined') {
-                break;
-            }
-            result = result + 1;
-        }
         return result;
-    }
-
-    cloneObject(object) {
-        if (object === null || typeof(object) !== 'object')
-            return object;
-      
-        var copy = object.constructor();
-      
-        for (var attr in object) {
-            if (object.hasOwnProperty(attr)) {
-                copy[attr] = this.cloneObject(object[attr]);
-            }
-        }
-      
-        return copy;
-    }
-
-    makeNullObject(object) {
-        for (var key in object) {
-            object[key] = null;
-        }
-        return object;
     }
 }
 
