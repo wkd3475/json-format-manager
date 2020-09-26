@@ -166,6 +166,18 @@ class JFMClient {
             for (let formatId in data.registration) {
                 this.registFormat(data.registration[formatId], formatId);
             }
+
+            if (data.ok == false) {
+                let args = {
+                    data: object,
+                    headers: { "Content-Type": "application/json"}
+                }
+                client.post(url, args, (data, response) => {
+                    for (let formatId in data.registration) {
+                        this.registFormat(data.registration[formatId], formatId);
+                    }
+                })
+            }
         })
 
         req.on('error', (err) => {
