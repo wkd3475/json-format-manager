@@ -269,7 +269,7 @@ class JFMServer {
     decompress = (arr) => {
         let result = [];
         for (let element of arr) {
-            if (typeof(element) === "object" && element.hasOwnProperty("c") == true) {
+            if (utils.getType(element) == "JFMObject" && element.hasOwnProperty("c") == true) {
                 let formatId = element["i"];
                 for (let d of element["c"]) {
                     result.push({"i": formatId, "d": d});
