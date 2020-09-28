@@ -9,9 +9,8 @@ class Utils {
     getType = (target) => {
         if (this.isJFMObject(target)) {
             return "JFMObject";
-        } else if (typeof(target) === "object" && target !== null && !Array.isArray(target) ) {
+        } else if (typeof(target) === "object" && target != null && !Array.isArray(target) ) {
             return "PureObject";
-        } else if (typeof(target) === "object" && target !== null && Array.isArray(target)) {
         } else if (typeof(target) === "object" && target != null && Array.isArray(target)) {
             return "Array";
         }
