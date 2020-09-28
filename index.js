@@ -269,9 +269,8 @@ class JFMServer {
     decompress = (arr) => {
         let result = [];
         for (let element of arr) {
-            let formatId = element["i"];
-
             if (typeof(element["c"]) !== "undefined") {
+                let formatId = element["i"];
                 for (let d of element["c"]) {
                     result.push({"i": formatId, "d": d});
                 }
